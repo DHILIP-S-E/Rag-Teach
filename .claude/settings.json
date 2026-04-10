@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -c ':*)"
+      "Bash(python -c ':*)",
+      "Bash(streamlit run:*)",
+      "Bash(timeout 8)",
+      "Bash(mkdir -p ~/.streamlit)",
+      "Bash(pkill -f \"streamlit run\")"
     ]
   }
 }

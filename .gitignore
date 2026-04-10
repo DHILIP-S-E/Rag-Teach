@@ -7,3 +7,4 @@ embedding_cache/
 dist/
 build/
 .streamlit/secrets.toml
+.claude/settings.json

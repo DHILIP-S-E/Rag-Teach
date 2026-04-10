@@ -81,32 +81,8 @@ with st.sidebar:
         for issue in issues:
             st.warning(f"⚠️ {issue}")
 
-    # Model settings
-    st.subheader("🔧 Settings")
-    embedding_provider = st.selectbox(
-        "Embedding Provider",
-        ["huggingface", "gemini"],
-        index=0 if Config.EMBEDDING_PROVIDER == "huggingface" else 1,
-    )
-    embedding_model_name = st.text_input(
-        "Embedding Model",
-        value=Config.EMBEDDING_MODEL,
-    )
-    llm_model = st.selectbox(
-        "LLM Model",
-        ["gemini-3.1-pro-preview", "gemini-2.0-flash", "gemini-2.0-flash-lite"],
-        index=["gemini-3.1-pro-preview", "gemini-2.0-flash", "gemini-2.0-flash-lite"].index(Config.LLM_MODEL)
-        if Config.LLM_MODEL in ["gemini-3.1-pro-preview", "gemini-2.0-flash", "gemini-2.0-flash-lite"]
-        else 0,
-    )
-    use_reranking = st.checkbox("Enable BM25 Re-ranking", value=True)
-
-    # Apply settings changes
-    Config.EMBEDDING_PROVIDER = embedding_provider
-    Config.EMBEDDING_MODEL = embedding_model_name
-    Config.LLM_MODEL = llm_model
-
-    st.markdown("---")
+    # Re-ranking is always enabled
+    use_reranking = True
 
     # File uploader
     st.subheader("📄 Upload Documents")
@@ -221,6 +197,12 @@ if query := st.chat_input("Ask a question about your documents..."):
         st.stop()
 
     get_pipeline()
+
+    # Check if collection exists before querying
+    collection_info = st.session_state.vector_store.get_collection_info()
+    if not collection_info or collection_info.get("points_count", 0) == 0:
+        st.warning("No documents uploaded yet. Please upload and process documents first using the sidebar.")
+        st.stop()
 
     # Add user message to history
     st.session_state.chat_history.append({"role": "user", "content": query})
