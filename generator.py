@@ -1,5 +1,5 @@
 """
-LLM generation module using Google Gemini with grounded RAG prompt engineering.
+LLM generation module using Google Gemini (google-genai SDK) with grounded RAG prompt engineering.
 
 The prompt template is designed to:
 1. Ground the model strictly in retrieved context
@@ -8,7 +8,8 @@ The prompt template is designed to:
 4. Support conversational memory by including chat history
 """
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from config import Config
 
 
@@ -45,9 +46,9 @@ def build_context_block(retrieved_chunks: list[dict]) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def build_gemini_history(chat_history: list[dict] | None = None) -> list[dict]:
+def build_history(chat_history: list[dict] | None = None) -> list:
     """
-    Convert chat history to Gemini's format.
+    Convert chat history to google-genai Content format.
     Gemini uses 'user' and 'model' roles (not 'assistant').
     """
     if not chat_history:
@@ -56,20 +57,34 @@ def build_gemini_history(chat_history: list[dict] | None = None) -> list[dict]:
     gemini_history = []
     for msg in chat_history[-20:]:  # Keep last 10 exchanges
         role = "model" if msg["role"] == "assistant" else "user"
-        gemini_history.append({"role": role, "parts": [msg["content"]]})
+        gemini_history.append(
+            types.Content(role=role, parts=[types.Part(text=msg["content"])])
+        )
     return gemini_history
 
 
+def build_user_message(query: str, context_block: str) -> str:
+    """Build the user message with context injection."""
+    return f"""CONTEXT:
+{context_block}
+
+QUESTION: {query}
+
+Answer the question using ONLY the context above. Cite your sources."""
+
+
 class Generator:
-    """LLM-based answer generator using Google Gemini."""
+    """LLM-based answer generator using Google Gemini (google-genai SDK)."""
 
     def __init__(self, model: str | None = None, api_key: str | None = None):
         self.model_name = model or Config.LLM_MODEL
-        api_key = api_key or Config.GEMINI_API_KEY
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(
-            model_name=self.model_name,
+        self.client = genai.Client(api_key=api_key or Config.GEMINI_API_KEY)
+
+    def _build_config(self, temperature: float) -> types.GenerateContentConfig:
+        return types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
+            temperature=temperature,
+            max_output_tokens=1024,
         )
 
     def generate(
@@ -84,28 +99,19 @@ class Generator:
         Low temperature (0.1) reduces creative/hallucinated output.
         """
         context_block = build_context_block(retrieved_chunks)
-        user_message = f"""CONTEXT:
-{context_block}
-
-QUESTION: {query}
-
-Answer the question using ONLY the context above. Cite your sources."""
+        user_message = build_user_message(query, context_block)
 
         try:
-            # Start a chat with history for conversational continuity
-            gemini_history = build_gemini_history(chat_history)
-            chat = self.model.start_chat(history=gemini_history)
-
-            response = chat.send_message(
-                user_message,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=temperature,
-                    max_output_tokens=1024,
-                ),
+            # Use chat session for conversational continuity
+            chat = self.client.chats.create(
+                model=self.model_name,
+                config=self._build_config(temperature),
+                history=build_history(chat_history),
             )
+            response = chat.send_message(user_message)
             return response.text
         except Exception as e:
-            return f"Error generating response: {str(e)}"
+            return f"Error generating response: {type(e).__name__}: {str(e)}"
 
     def generate_stream(
         self,
@@ -119,27 +125,16 @@ Answer the question using ONLY the context above. Cite your sources."""
         Yields text chunks as they arrive from the Gemini API.
         """
         context_block = build_context_block(retrieved_chunks)
-        user_message = f"""CONTEXT:
-{context_block}
-
-QUESTION: {query}
-
-Answer the question using ONLY the context above. Cite your sources."""
+        user_message = build_user_message(query, context_block)
 
         try:
-            gemini_history = build_gemini_history(chat_history)
-            chat = self.model.start_chat(history=gemini_history)
-
-            response = chat.send_message(
-                user_message,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=temperature,
-                    max_output_tokens=1024,
-                ),
-                stream=True,
+            chat = self.client.chats.create(
+                model=self.model_name,
+                config=self._build_config(temperature),
+                history=build_history(chat_history),
             )
-            for chunk in response:
+            for chunk in chat.send_message_stream(user_message):
                 if chunk.text:
                     yield chunk.text
         except Exception as e:
-            yield f"Error generating response: {str(e)}"
+            yield f"Error generating response: {type(e).__name__}: {str(e)}"

@@ -35,13 +35,15 @@ class EmbeddingModel:
         if self.provider == "huggingface":
             from sentence_transformers import SentenceTransformer
             self._model = SentenceTransformer(self.model_name)
-            # Get dimension from a test encoding
-            self._dimension = self._model.get_sentence_embedding_dimension()
+            # Try new API first, fall back to old one
+            if hasattr(self._model, "get_embedding_dimension"):
+                self._dimension = self._model.get_embedding_dimension()
+            else:
+                self._dimension = self._model.get_sentence_embedding_dimension()
 
         elif self.provider == "gemini":
-            import google.generativeai as genai
-            genai.configure(api_key=Config.GEMINI_API_KEY)
-            self._model = genai
+            from google import genai
+            self._model = genai.Client(api_key=Config.GEMINI_API_KEY)
             # Gemini text-embedding-004 produces 768-dim vectors
             self._dimension = 768
         else:
@@ -89,12 +91,12 @@ class EmbeddingModel:
                 embeddings = embeddings.tolist()
 
             elif self.provider == "gemini":
-                # Gemini embed_content supports batch via list input
-                response = self._model.embed_content(
-                    model="models/text-embedding-004",
-                    content=batch_texts,
+                # New google-genai SDK: client.models.embed_content
+                response = self._model.models.embed_content(
+                    model="text-embedding-004",
+                    contents=batch_texts,
                 )
-                embeddings = response["embedding"]
+                embeddings = [e.values for e in response.embeddings]
 
             # Store computed embeddings in results and cache
             for idx, emb, text in zip(indices, embeddings, batch_texts):

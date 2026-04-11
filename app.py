@@ -93,48 +93,70 @@ with st.sidebar:
     )
 
     if uploaded_files and st.button("🚀 Process Documents", use_container_width=True):
-        get_pipeline()
-        emb_model = st.session_state.embedding_model
-        vs = st.session_state.vector_store
+        try:
+            get_pipeline()
+            emb_model = st.session_state.embedding_model
+            vs = st.session_state.vector_store
 
-        # Ensure Qdrant collection exists
-        vs.ensure_collection(vector_size=emb_model.dimension)
+            # Ensure Qdrant collection exists
+            with st.spinner("Connecting to Qdrant..."):
+                vs.ensure_collection(vector_size=emb_model.dimension)
 
-        total_chunks = 0
-        progress = st.progress(0, text="Processing documents...")
+            total_chunks = 0
+            progress = st.progress(0, text="Processing documents...")
 
-        for i, uploaded_file in enumerate(uploaded_files):
-            progress.progress(
-                (i) / len(uploaded_files),
-                text=f"Processing: {uploaded_file.name}",
-            )
+            for i, uploaded_file in enumerate(uploaded_files):
+                progress.progress(
+                    i / len(uploaded_files),
+                    text=f"[{i+1}/{len(uploaded_files)}] {uploaded_file.name}",
+                )
 
-            try:
-                # Step 1: Extract text
-                file_bytes = uploaded_file.read()
-                documents = ingest_file(file_bytes, uploaded_file.name)
+                try:
+                    # Step 1: Extract text
+                    file_bytes = uploaded_file.read()
+                    documents = ingest_file(file_bytes, uploaded_file.name)
 
-                if not documents:
-                    st.warning(f"No text extracted from {uploaded_file.name}")
-                    continue
+                    if not documents:
+                        st.warning(f"⚠️ No text extracted from {uploaded_file.name}")
+                        continue
 
-                # Step 2: Chunk
-                chunks = chunk_documents(documents)
+                    # Step 2: Chunk
+                    chunks = chunk_documents(documents)
+                    if not chunks:
+                        st.warning(f"⚠️ No chunks produced from {uploaded_file.name}")
+                        continue
 
-                # Step 3: Embed
-                texts = [c.text for c in chunks]
-                embeddings = emb_model.embed_texts(texts)
+                    st.info(f"📝 {uploaded_file.name}: {len(documents)} pages → {len(chunks)} chunks")
 
-                # Step 4: Store in Qdrant
-                count = vs.upsert_documents(chunks, embeddings.tolist())
-                total_chunks += count
+                    # Step 3: Embed
+                    texts = [c.text for c in chunks]
+                    embeddings = emb_model.embed_texts(texts)
 
-            except Exception as e:
-                st.error(f"Error processing {uploaded_file.name}: {str(e)}")
+                    # Step 4: Store in Qdrant
+                    count = vs.upsert_documents(chunks, embeddings.tolist())
+                    total_chunks += count
 
-        progress.progress(1.0, text="Done!")
-        st.session_state.documents_processed += total_chunks
-        st.success(f"✅ Processed {total_chunks} chunks from {len(uploaded_files)} file(s)")
+                except Exception as e:
+                    st.error(f"❌ Error processing {uploaded_file.name}: {type(e).__name__}: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+            progress.progress(1.0, text="Done!")
+            st.session_state.documents_processed += total_chunks
+
+            # Verify what's actually in Qdrant
+            info = vs.get_collection_info()
+            stored_count = info.get("points_count", 0) if info else 0
+
+            if total_chunks > 0 and stored_count > 0:
+                st.success(f"✅ Processed {total_chunks} chunks. Qdrant now has {stored_count} points.")
+            else:
+                st.error(f"⚠️ Processing finished but Qdrant shows {stored_count} points. Something went wrong.")
+
+        except Exception as e:
+            import traceback
+            st.error(f"❌ Pipeline error: {type(e).__name__}: {e}")
+            st.code(traceback.format_exc())
 
     # Collection info
     st.markdown("---")

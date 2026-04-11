@@ -21,7 +21,7 @@ class Config:
 
     # LLM (Google Gemini)
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-3.1-pro-preview")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "gemini-2.5-flash")
 
     # Chunking
     CHUNK_SIZE: int = 512  # tokens

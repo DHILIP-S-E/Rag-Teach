@@ -130,11 +130,15 @@ class VectorStore:
     def get_collection_info(self) -> dict | None:
         """Return collection stats, or None if it doesn't exist."""
         try:
-            info = self.client.get_collection(self.collection_name)
+            # Use count() — it's always reliable, unlike info.points_count
+            # which can be None for newly-created collections
+            count_result = self.client.count(
+                collection_name=self.collection_name,
+                exact=True,
+            )
             return {
                 "name": self.collection_name,
-                "vectors_count": info.vectors_count,
-                "points_count": info.points_count,
+                "points_count": count_result.count,
             }
         except Exception:
             return None
